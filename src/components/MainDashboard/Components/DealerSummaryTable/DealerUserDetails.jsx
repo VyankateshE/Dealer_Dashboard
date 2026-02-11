@@ -3746,13 +3746,13 @@ const DealerUserDetails = forwardRef(
                     </span>
                   )}
                 </h2>
-                {overdueModalData?.date_range && (
+                {/* {overdueModalData?.date_range && (
                   <p className="text-sm text-gray-500 mt-1">
                     {formatDate(overdueModalData.date_range.start)} -{" "}
                     {formatDate(overdueModalData.date_range.end)}
                   </p>
-                )}
-                <div className="flex items-center gap-2 mt-1">
+                )} */}
+                {/* <div className="flex items-center gap-2 mt-1">
                   <span className="text-xs text-gray-600">Filter:</span>
                   <span className="text-xs font-medium text-[#222fb9] bg-blue-50 px-2 py-1 rounded border border-blue-200">
                     {overdueModalFilter === "CUSTOM"
@@ -3761,7 +3761,7 @@ const DealerUserDetails = forwardRef(
                           (opt) => opt.value === overdueModalFilter,
                         )?.label || overdueModalFilter}
                   </span>
-                </div>
+                </div> */}
               </div>
 
               <div className="flex items-center gap-4">
