@@ -2241,8 +2241,11 @@ import React, {
   useRef,
   forwardRef,
   useImperativeHandle,
+  useMemo,
 } from "react";
 import { toPng } from "html-to-image";
+import axios from "axios";
+
 
 const DealerUserDetails = forwardRef(
   (
@@ -2283,12 +2286,34 @@ const DealerUserDetails = forwardRef(
     const [userOverdueModalLoading, setUserOverdueModalLoading] =
       useState(false);
     const [selectedUser, setSelectedUser] = useState(null);
+    // const [overdueModalType, setOverdueModalType] = useState(null); // "followups" or "testdrives"
+    // const [overdueActiveTab, setOverdueActiveTab] = useState("closed");
+    // const [showOverdueModal, setShowOverdueModal] = useState(false);
+    // const [overdueModalData, setOverdueModalData] = useState(null);
+const [showOverdueModal, setShowOverdueModal] = useState(false);
+const [overdueModalData, setOverdueModalData] = useState(null);
+const [overdueModalLoading, setOverdueModalLoading] = useState(false);
+const [overdueModalType, setOverdueModalType] = useState(null);
+const [overdueActiveTab, setOverdueActiveTab] = useState("closed");
 
     const [userSortColumn, setUserSortColumn] = useState(null);
     const [userSortDirection, setUserSortDirection] = useState("default");
     const exportContainerRef = useRef(null);
 
     const tableRef = useRef(null);
+       // Close overdue modal
+ 
+
+    // Filter state for overdue modal
+        const [overdueModalFilter, setOverdueModalFilter] = useState(
+          modalFilter || "MTD",
+        );
+        const [overdueCustomStartDate, setOverdueCustomStartDate] = useState(
+          modalCustomStartDate || "",
+        );
+        const [overdueCustomEndDate, setOverdueCustomEndDate] = useState(
+          modalCustomEndDate || "",
+        );
 
     const dealerId = dealer.dealerId || dealer.id;
 
@@ -2322,6 +2347,154 @@ const DealerUserDetails = forwardRef(
       }
       return dealer;
     };
+
+        // Build API params for overdue modal
+    const buildOverdueParams = () => {
+      const params = {
+        dealer_id: dealerId,
+        overdue_type:
+          overdueModalType === "followups" ? "followup" : "testdrive",
+      };
+
+      if (overdueModalFilter === "CUSTOM") {
+        if (overdueCustomStartDate && overdueCustomEndDate) {
+          params.start_date = overdueCustomStartDate;
+          params.end_date = overdueCustomEndDate;
+        } else {
+          params.type = "MTD";
+        }
+      } else {
+        params.type = overdueModalFilter;
+      }
+
+      return params;
+    };
+
+    // Fetch overdue data
+    const fetchOverdueData = async () => {
+      setOverdueModalLoading(true);
+      setOverdueModalData(null);
+
+      try {
+        const apiParams = buildOverdueParams();
+        console.log("Fetching overdue data with params:", apiParams);
+
+        const res = await api.get("/generalManager/dashboard/GMOverdueReport", {
+          params: apiParams,
+        });
+
+        console.log("Overdue API Response:", res.data);
+
+        if (res.data && res.data.status === 200 && res.data.data) {
+          setOverdueModalData(res.data.data);
+        } else {
+          console.error("Invalid response structure:", res.data);
+        }
+      } catch (err) {
+        console.error("API Error:", err);
+      } finally {
+        setOverdueModalLoading(false);
+      }
+    };
+
+    // Handle overdue click
+    const handleOverdueClick = (type) => {
+      setOverdueModalType(type);
+      setOverdueActiveTab("closed");
+      setShowOverdueModal(true);
+    };
+
+    // Close overdue modal
+    const closeOverdueModal = () => {
+      setShowOverdueModal(false);
+      setOverdueModalData(null);
+    };
+
+     // Handle date filter change in overdue modal
+    const handleOverdueFilterChange = (e) => {
+      const value = e.target.value;
+      setOverdueModalFilter(value);
+
+      if (value !== "CUSTOM") {
+        setOverdueCustomStartDate("");
+        setOverdueCustomEndDate("");
+      }
+    };
+
+
+     // Get ageing counts for overdue modal
+    const getAgeingCounts = () => {
+      if (!overdueModalData || !overdueModalData.dealerData?.[0]) {
+        return { "60+d": 0, "31-60d": 0, "<30d": 0 };
+      }
+
+      const dealerData = overdueModalData.dealerData[0];
+      const section =
+        overdueActiveTab === "closed"
+          ? overdueModalType === "followups"
+            ? "closed_followups"
+            : "closed_testdrives"
+          : overdueModalType === "followups"
+            ? "web_overdue_followups"
+            : "web_overdue_testdrives";
+
+      const data = dealerData[section];
+      if (!data) {
+        return { "60+d": 0, "31-60d": 0, "<30d": 0 };
+      }
+
+      return {
+        "60+d": data.days60Plus || 0,
+        "31-60d": data.days31to60 || 0,
+        "<30d": data.lessThan30Days || 0,
+      };
+    };
+
+      useEffect(() => {
+          if (showOverdueModal && overdueModalType) {
+            fetchOverdueData();
+          }
+        }, [
+          showOverdueModal,
+          overdueModalType,
+          overdueModalFilter,
+          overdueCustomStartDate,
+          overdueCustomEndDate,
+        ]);
+    
+    // ==================== DATE FILTER OPTIONS ====================
+    const dateFilterOptions = [
+      { value: "DAY", label: "Today" },
+      { value: "YESTERDAY", label: "Yesterday" },
+      { value: "WEEK", label: "This Week" },
+      { value: "LAST_WEEK", label: "Last Week" },
+      { value: "MTD", label: "This Month" },
+      { value: "LAST_MONTH", label: "Last Month" },
+      { value: "QTD", label: "This Quarter" },
+      { value: "LAST_QUARTER", label: "Last Quarter" },
+      { value: "SIX_MONTH", label: "Last 6 Months" },
+      { value: "YTD", label: "This Year" },
+      { value: "LIFETIME", label: "Lifetime" },
+      { value: "CUSTOM", label: "Custom Range" },
+    ];
+
+
+     // ==================== API INSTANCE ====================
+        const api = useMemo(() => {
+          const instance = axios.create({
+            baseURL: "https://uat.smartassistapp.in/api",
+          });
+    
+          instance.interceptors.request.use((config) => {
+            const token = localStorage.getItem("token");
+            if (token) {
+              config.headers.Authorization = `Bearer ${token}`;
+            }
+            return config;
+          });
+    
+          return instance;
+        }, []);
 
     useEffect(() => {
       if (isModal && dealerUsers && dealerUsers[dealerId]) {
@@ -2405,63 +2578,367 @@ const DealerUserDetails = forwardRef(
 
     const sortedUsers = getSortedUsers(displayedUsers);
 
-    const handleUserOverdueClick = async (user, type) => {
-      setSelectedUser(user);
-      setUserOverdueModalType(type);
-      setUserOverdueModalData(null);
-      setUserOverdueModalLoading(true);
-      setShowUserOverdueModal(true);
+    // const handleUserOverdueClick = async (user, type) => {
+    //   setSelectedUser(user);
+    //   setUserOverdueModalType(type);
+    //   setUserOverdueModalData(null);
+    //   setUserOverdueModalLoading(true);
+    //   setShowUserOverdueModal(true);
 
-      setTimeout(() => {
-        const mockData = {
-          userName: user.user,
-          dealerName: dealer.dealerName || dealer.name,
-          type: type,
-          total:
-            type === "followups"
-              ? user.followups?.closed || 0
-              : user.testdrives?.closed || 0,
-          items:
-            type === "followups"
-              ? [
-                  {
-                    id: 1,
-                    customerName: "John Doe",
-                    date: "2024-01-15",
-                    reason: "Customer not responding",
-                    status: "Overdue",
-                  },
-                  {
-                    id: 2,
-                    customerName: "Jane Smith",
-                    date: "2024-01-14",
-                    reason: "Follow-up pending",
-                    status: "Overdue",
-                  },
-                ]
-              : [
-                  {
-                    id: 1,
-                    customerName: "Alice Brown",
-                    date: "2024-01-16",
-                    vehicle: "Model X",
-                    status: "Overdue",
-                  },
-                  {
-                    id: 2,
-                    customerName: "Charlie Wilson",
-                    date: "2024-01-15",
-                    vehicle: "Model Y",
-                    status: "Overdue",
-                  },
-                ],
-        };
-        setUserOverdueModalData(mockData);
-        setUserOverdueModalLoading(false);
-      }, 500);
+    //   setTimeout(() => {
+    //     const mockData = {
+    //       userName: user.user,
+    //       dealerName: dealer.dealerName || dealer.name,
+    //       type: type,
+    //       total:
+    //         type === "followups"
+    //           ? user.followups?.closed || 0
+    //           : user.testdrives?.closed || 0,
+    //       items:
+    //         type === "followups"
+    //           ? [
+    //               {
+    //                 id: 1,
+    //                 customerName: "John Doe",
+    //                 date: "2024-01-15",
+    //                 reason: "Customer not responding",
+    //                 status: "Overdue",
+    //               },
+    //               {
+    //                 id: 2,
+    //                 customerName: "Jane Smith",
+    //                 date: "2024-01-14",
+    //                 reason: "Follow-up pending",
+    //                 status: "Overdue",
+    //               },
+    //             ]
+    //           : [
+    //               {
+    //                 id: 1,
+    //                 customerName: "Alice Brown",
+    //                 date: "2024-01-16",
+    //                 vehicle: "Model X",
+    //                 status: "Overdue",
+    //               },
+    //               {
+    //                 id: 2,
+    //                 customerName: "Charlie Wilson",
+    //                 date: "2024-01-15",
+    //                 vehicle: "Model Y",
+    //                 status: "Overdue",
+    //               },
+    //             ],
+    //     };
+    //     setUserOverdueModalData(mockData);
+    //     setUserOverdueModalLoading(false);
+    //   }, 500);
+    // };
+
+
+
+     // ==================== OVERDUE MODAL COMPONENT ====================
+    const OverdueModal = () => {
+      const ageingCounts = getAgeingCounts();
+      const dealerData = overdueModalData?.dealerData?.[0];
+      const isFollowup = overdueModalType === "followups";
+
+      return (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-[200] backdrop-blur-sm"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={closeOverdueModal}
+        >
+          <div
+            className="bg-white rounded-lg shadow-2xl w-[90vw] max-w-6xl max-h-[80vh] mx-4 overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-300 flex-shrink-0 bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-gray-800 truncate">
+                  {isFollowup
+                    ? "Overdue Follow-ups Report"
+                    : "Overdue Test Drives Report"}
+                  {dealerData?.dealerName && (
+                    <span className="text-sm font-normal text-gray-600 ml-2">
+                      - {dealerData.dealerName}
+                    </span>
+                  )}
+                </h2>
+                {/* {overdueModalData?.date_range && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    {formatDate(overdueModalData.date_range.start)} -{" "}
+                    {formatDate(overdueModalData.date_range.end)}
+                  </p>
+                )} */}
+                {/* <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-600">Filter:</span>
+                  <span className="text-xs font-medium text-[#222fb9] bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                    {overdueModalFilter === "CUSTOM"
+                      ? `Custom (${formatDate(overdueCustomStartDate)} to ${formatDate(overdueCustomEndDate)})`
+                      : dateFilterOptions.find(
+                          (opt) => opt.value === overdueModalFilter,
+                        )?.label || overdueModalFilter}
+                  </span>
+                </div> */}
+              </div>
+
+              <div className="flex items-center gap-4">
+                {/* Date Filter Dropdown */}
+                <div className="relative">
+                  <div className="relative">
+                    <select
+                      value={overdueModalFilter}
+                      onChange={handleOverdueFilterChange}
+                      className="time-filter px-3 py-1.5 border border-gray-300 rounded-lg bg-white hover:border-gray-400 focus:border-[#222fb9] focus:ring-1 focus:ring-[#222fb9] outline-none min-w-[150px] text-sm appearance-none"
+                    >
+                      {dateFilterOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                      <i className="fas fa-chevron-down text-gray-400 text-xs"></i>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Close Button */}
+                <button
+                  onClick={closeOverdueModal}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Date Picker */}
+            {overdueModalFilter === "CUSTOM" && (
+              <div className="px-6 py-3 border-b border-gray-200 bg-blue-50">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={overdueCustomStartDate || ""}
+                      onChange={(e) =>
+                        setOverdueCustomStartDate(e.target.value)
+                      }
+                      className="custom-date px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm"
+                    />
+                    <span className="text-gray-600">to</span>
+                    <input
+                      type="date"
+                      value={overdueCustomEndDate || ""}
+                      onChange={(e) => setOverdueCustomEndDate(e.target.value)}
+                      className="custom-date px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={applyOverdueCustomDate}
+                      disabled={
+                        !overdueCustomStartDate || !overdueCustomEndDate
+                      }
+                      className="apply-btn px-4 py-1.5 bg-[#222fb9] text-white rounded-lg hover:bg-[#1b258f] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={resetOverdueFilter}
+                      className="reset-btn px-4 py-1.5 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Summary Stats and Tabs */}
+            {overdueModalData && dealerData && (
+              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  {/* Left Stats */}
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">
+                        Total {isFollowup ? "Follow-ups" : "Test Drives"}:
+                      </span>
+                      <span className="text-[#222fb9] font-semibold text-base">
+                        {dealerData.closed_followups?.total ||
+                          dealerData.closed_testdrives?.total ||
+                          0}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">
+                        Total Digital Overdue:
+                      </span>
+                      <span className="text-orange-600 font-semibold text-base">
+                        {dealerData.web_overdue_followups?.total ||
+                          dealerData.web_overdue_testdrives?.total ||
+                          0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Tabs */}
+                  <div className="flex border-b border-gray-300">
+                    <button
+                      className={`px-4 py-2 font-medium text-sm whitespace-nowrap ${
+                        overdueActiveTab === "closed"
+                          ? "text-[#222fb9] border-b-2 border-[#222fb9]"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                      onClick={() => setOverdueActiveTab("closed")}
+                    >
+                      {isFollowup ? "Total Follow-ups" : "Total Test Drives"}
+                      <span className="ml-2 bg-blue-100 text-[#222fb9] text-xs px-2 py-1 rounded">
+                        {dealerData.closed_followups?.total ||
+                          dealerData.closed_testdrives?.total ||
+                          0}
+                      </span>
+                    </button>
+
+                    <button
+                      className={`px-4 py-2 font-medium text-sm whitespace-nowrap ${
+                        overdueActiveTab === "web"
+                          ? "text-[#222fb9] border-b-2 border-[#222fb9]"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                      onClick={() => setOverdueActiveTab("web")}
+                    >
+                      {isFollowup
+                        ? "Digital Overdue Follow-ups"
+                        : "Digital Overdue Test Drives"}
+                      <span className="ml-2 bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded">
+                        {dealerData.web_overdue_followups?.total ||
+                          dealerData.web_overdue_testdrives?.total ||
+                          0}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Main Content Area */}
+            <div className="flex-1 overflow-auto min-h-0 p-6">
+              {overdueModalLoading && (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#222fb9] mb-4"></div>
+                  <div className="text-gray-500 text-sm">Loading data...</div>
+                </div>
+              )}
+
+              {!overdueModalLoading && overdueModalData && dealerData && (
+                <div className="space-y-6">
+                  {/* Ageing Summary Cards */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="text-sm text-red-800 font-medium">
+                        60+ Days
+                      </div>
+                      <div className="text-2xl font-bold text-red-600 mt-1">
+                        {ageingCounts["60+d"]}
+                      </div>
+                    </div>
+
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="text-sm text-yellow-800 font-medium">
+                        31-60 Days
+                      </div>
+                      <div className="text-2xl font-bold text-yellow-600 mt-1">
+                        {ageingCounts["31-60d"]}
+                      </div>
+                    </div>
+
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="text-sm text-green-800 font-medium">
+                        &lt;30 Days
+                      </div>
+                      <div className="text-2xl font-bold text-green-600 mt-1">
+                        {ageingCounts["<30d"]}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table Placeholder - Since we don't have lead details in API */}
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="max-h-[400px] overflow-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Ageing
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Lead Name
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Created At
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Due Date
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          <tr>
+                            <td
+                              colSpan="5"
+                              className="px-4 py-8 text-center text-gray-500"
+                            >
+                              Lead details are not available.
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-300 bg-gray-50 flex justify-between items-center flex-shrink-0">
+              <span className="text-sm text-gray-500">
+                Showing counts for{" "}
+                {overdueActiveTab === "closed"
+                  ? isFollowup
+                    ? "closed follow-ups"
+                    : "closed test drives"
+                  : isFollowup
+                    ? "web overdue follow-ups"
+                    : "web overdue test drives"}
+              </span>
+              <button
+                onClick={closeOverdueModal}
+                className="px-4 py-2 bg-[#222fb9] text-white rounded-lg hover:bg-[#1a259c] transition-colors font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+     const handleUserOverdueClick = (type) => {
+      setOverdueModalType(type);
+      setOverdueActiveTab("closed");
+      setShowOverdueModal(true);
     };
 
     const closeUserOverdueModal = () => {
+      setShowOverdueModal(false);
+      setOverdueModalData(null);
       setShowUserOverdueModal(false);
       setUserOverdueModalType(null);
       setUserOverdueModalData(null);
@@ -3631,7 +4108,7 @@ const DealerUserDetails = forwardRef(
                                     "font-semibold text-red-600",
                                     true,
                                     () =>
-                                      handleUserOverdueClick(user, "followups"),
+                                      handleOverdueClick("followups"),
                                   )}
                                 </td>
 
@@ -3659,10 +4136,7 @@ const DealerUserDetails = forwardRef(
                                     "font-semibold text-red-600",
                                     true,
                                     () =>
-                                      handleUserOverdueClick(
-                                        user,
-                                        "testdrives",
-                                      ),
+                                      handleOverdueClick("testdrives"),
                                   )}
                                 </td>
 
@@ -3856,6 +4330,9 @@ const DealerUserDetails = forwardRef(
             </div>
           </div>
         )}
+
+                {showOverdueModal && <OverdueModal />}
+
       </>
     );
   },
